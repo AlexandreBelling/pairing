@@ -14,11 +14,10 @@ macro_rules! curve_impl {
         pub struct $affine {
             pub(crate) x: $basefield,
             pub(crate) y: $basefield,
-            pub(crate) infinity: bool
+            pub(crate) infinity: bool,
         }
 
-        impl ::std::fmt::Display for $affine
-        {
+        impl ::std::fmt::Display for $affine {
             fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
                 if self.infinity {
                     write!(f, "{}(Infinity)", $name)
@@ -30,19 +29,19 @@ macro_rules! curve_impl {
 
         #[derive(Copy, Clone, Debug, Eq)]
         pub struct $projective {
-           pub(crate) x: $basefield,
-           pub(crate) y: $basefield,
-           pub(crate) z: $basefield
+            pub(crate) x: $basefield,
+            pub(crate) y: $basefield,
+            pub(crate) z: $basefield,
         }
 
-        impl ::std::fmt::Display for $projective
-        {
+        impl ::std::fmt::Display for $projective {
             fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
                 write!(f, "{}", self.into_affine())
             }
         }
 
         impl PartialEq for $projective {
+            #[inline(always)]
             fn eq(&self, other: &$projective) -> bool {
                 if self.is_zero() {
                     return other.is_zero();
@@ -53,8 +52,8 @@ macro_rules! curve_impl {
                 }
 
                 // The points (X, Y, Z) and (X', Y', Z')
-                // are equal when (X * Z^2) = (X' * Z'^2)
-                // and (Y * Z^3) = (Y' * Z'^3).
+                // are equal when (X * Z'^2) = (X' * Z^2)
+                // and (Y * Z'^3) = (Y' * Z^3).
 
                 let mut z1 = self.z;
                 z1.square();
@@ -85,11 +84,14 @@ macro_rules! curve_impl {
         }
 
         impl $affine {
+            #[inline(always)]
             fn mul_bits<S: AsRef<[u64]>>(&self, bits: BitIterator<S>) -> $projective {
                 let mut res = $projective::zero();
                 for i in bits {
                     res.double();
-                    if i { res.add_assign_mixed(self) }
+                    if i {
+                        res.add_assign_mixed(self)
+                    }
                 }
                 res
             }
@@ -99,29 +101,30 @@ macro_rules! curve_impl {
             ///
             /// If and only if `greatest` is set will the lexicographically
             /// largest y-coordinate be selected.
+            #[inline(always)]
             fn get_point_from_x(x: $basefield, greatest: bool) -> Option<$affine> {
-                // Compute x^3 + b
-                let mut x3b = x;
-                x3b.square();
-                x3b.mul_assign(&x);
-                x3b.add_assign(&$affine::get_coeff_b());
+                // Compute x^3 + ax + b
+                let mut x3axb = x;
+                let mut ax = x;
+                x3axb.square();
+                x3axb.mul_assign(&x);
+                ax.mul_assign(&$affine::get_coeff_a());
+                x3axb.add_assign(&ax);
+                x3axb.add_assign(&$affine::get_coeff_b());
 
-                x3b.sqrt().map(|y| {
+                x3axb.sqrt().map(|y| {
                     let mut negy = y;
                     negy.negate();
 
                     $affine {
                         x: x,
-                        y: if (y < negy) ^ greatest {
-                            y
-                        } else {
-                            negy
-                        },
-                        infinity: false
+                        y: if (y < negy) ^ greatest { y } else { negy },
+                        infinity: false,
                     }
                 })
             }
 
+            #[inline(always)]
             fn is_on_curve(&self) -> bool {
                 if self.is_zero() {
                     true
@@ -130,118 +133,135 @@ macro_rules! curve_impl {
                     let mut y2 = self.y;
                     y2.square();
 
-                    let mut x3b = self.x;
-                    x3b.square();
-                    x3b.mul_assign(&self.x);
-                    x3b.add_assign(&Self::get_coeff_b());
+                    let mut x3axb = self.x;
+                    x3axb.square(); // x^2
+                    x3axb.add_assign(&Self::get_coeff_a()); // x^2 + a
+                    x3axb.mul_assign(&self.x); // x^3 + ax
+                    x3axb.add_assign(&Self::get_coeff_b()); // x^3 + ax + b
 
-                    y2 == x3b
+                    y2 == x3axb
                 }
             }
 
+            #[inline(always)]
+            fn is_in_correct_subgroup_assuming_on_curve(&self) -> bool {
+                self.mul($scalarfield::char()).is_zero()
+            }
         }
 
         impl CurveAffine for $affine {
-            type Engine = Bn256;
+            type Engine = Mnt6;
             type Scalar = $scalarfield;
             type Base = $basefield;
-            type Prepared = $prepared;
             type Projective = $projective;
             type Uncompressed = $uncompressed;
             type Compressed = $compressed;
+            type Prepared = $prepared;
             type Pair = $pairing;
-            type PairingResult = Fq12;
+            type PairingResult = Fq6;
 
+            #[inline(always)]
             fn zero() -> Self {
                 $affine {
                     x: $basefield::zero(),
                     y: $basefield::one(),
-                    infinity: true
+                    infinity: true,
                 }
             }
 
+            #[inline(always)]
             fn one() -> Self {
                 Self::get_generator()
             }
 
+            #[inline(always)]
             fn is_zero(&self) -> bool {
                 self.infinity
             }
 
+            #[inline(always)]
             fn mul<S: Into<<Self::Scalar as PrimeField>::Repr>>(&self, by: S) -> $projective {
                 let bits = BitIterator::new(by.into());
                 self.mul_bits(bits)
             }
 
+            #[inline(always)]
             fn negate(&mut self) {
                 if !self.is_zero() {
                     self.y.negate();
                 }
             }
 
+            #[inline(always)]
+            fn into_projective(&self) -> $projective {
+                (*self).into()
+            }
+
+            #[inline(always)]
             fn prepare(&self) -> Self::Prepared {
                 $prepared::from_affine(*self)
             }
 
+            #[inline(always)]
             fn pairing_with(&self, other: &Self::Pair) -> Self::PairingResult {
                 self.perform_pairing(other)
             }
+        }
 
-            fn into_projective(&self) -> $projective {
-                (*self).into()
+        impl Rand for $projective {
+            #[inline(always)]
+            fn rand<R: Rng>(rng: &mut R) -> Self {
+                loop {
+                    let x = rng.gen();
+                    let greatest = rng.gen();
+
+                    if let Some(p) = $affine::get_point_from_x(x, greatest) {
+                        let p = p.scale_by_cofactor();
+
+                        if !p.is_zero() {
+                            return p;
+                        }
+                    }
+                }
             }
         }
-        // impl Rand for $projective {
-        //     fn rand<R: Rng>(rng: &mut R) -> Self {
-        //         loop {
-        //             let x = rng.gen();
-        //             let greatest = rng.gen();
-
-        //             if let Some(p) = $affine::get_point_from_x(x, greatest) {
-        //                 if !p.is_zero() {
-        //                     // let mut q = p.into_projective();
-        //                     // q.mul_assign($scalarfield::char()); && q.is_zero()
-        //                     if p.is_on_curve() {
-        //                         return p.into_projective();
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
 
         impl CurveProjective for $projective {
-            type Engine = Bn256;
+            type Engine = Mnt6;
             type Scalar = $scalarfield;
             type Base = $basefield;
             type Affine = $affine;
 
             // The point at infinity is always represented by
             // Z = 0.
+            #[inline(always)]
             fn zero() -> Self {
                 $projective {
                     x: $basefield::zero(),
                     y: $basefield::one(),
-                    z: $basefield::zero()
+                    z: $basefield::zero(),
                 }
             }
 
+            #[inline(always)]
             fn one() -> Self {
                 $affine::one().into()
             }
 
             // The point at infinity is always represented by
             // Z = 0.
+            #[inline(always)]
             fn is_zero(&self) -> bool {
                 self.z.is_zero()
             }
 
+            #[inline(always)]
             fn is_normalized(&self) -> bool {
                 self.is_zero() || self.z == $basefield::one()
             }
 
-            fn batch_normalization(v: &mut [Self])
-            {
+            #[inline(always)]
+            fn batch_normalization(v: &mut [Self]) {
                 // Montgomery’s Trick and Fast Implementation of Masked AES
                 // Genelle, Prouff and Quisquater
                 // Section 3.2
@@ -249,9 +269,10 @@ macro_rules! curve_impl {
                 // First pass: compute [a, ab, abc, ...]
                 let mut prod = Vec::with_capacity(v.len());
                 let mut tmp = $basefield::one();
-                for g in v.iter_mut()
-                          // Ignore normalized elements
-                          .filter(|g| !g.is_normalized())
+                for g in v
+                    .iter_mut()
+                    // Ignore normalized elements
+                    .filter(|g| !g.is_normalized())
                 {
                     tmp.mul_assign(&g.z);
                     prod.push(tmp);
@@ -261,13 +282,19 @@ macro_rules! curve_impl {
                 tmp = tmp.inverse().unwrap(); // Guaranteed to be nonzero.
 
                 // Second pass: iterate backwards to compute inverses
-                for (g, s) in v.iter_mut()
-                               // Backwards
-                               .rev()
-                               // Ignore normalized elements
-                               .filter(|g| !g.is_normalized())
-                               // Backwards, skip last element, fill in one for last term.
-                               .zip(prod.into_iter().rev().skip(1).chain(Some($basefield::one())))
+                for (g, s) in v
+                    .iter_mut()
+                    // Backwards
+                    .rev()
+                    // Ignore normalized elements
+                    .filter(|g| !g.is_normalized())
+                    // Backwards, skip last element, fill in one for last term.
+                    .zip(
+                        prod.into_iter()
+                            .rev()
+                            .skip(1)
+                            .chain(Some($basefield::one())),
+                    )
                 {
                     // tmp := tmp * g.z; g.z := tmp * s = 1/z
                     let mut newtmp = tmp;
@@ -278,9 +305,7 @@ macro_rules! curve_impl {
                 }
 
                 // Perform affine transformations
-                for g in v.iter_mut()
-                          .filter(|g| !g.is_normalized())
-                {
+                for g in v.iter_mut().filter(|g| !g.is_normalized()) {
                     let mut z = g.z; // 1/z
                     z.square(); // 1/z^2
                     g.x.mul_assign(&z); // x/z^2
@@ -290,6 +315,8 @@ macro_rules! curve_impl {
                 }
             }
 
+            // https://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html#doubling-dbl-2007-bl
+            #[inline(always)]
             fn double(&mut self) {
                 if self.is_zero() {
                     return;
@@ -297,58 +324,68 @@ macro_rules! curve_impl {
 
                 // Other than the point at infinity, no points on E or E'
                 // can double to equal the point at infinity, as y=0 is
-                // never true for points on the curve.
+                // never true for points on the curve. (-4 and -4u-4
+                // are not cubic residue in their respective fields.)
 
-                // http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#doubling-dbl-2009-l
+                // XX = X1^2
+                let mut xx = self.x;
+                xx.square();
 
-                // A = X1^2
-                let mut a = self.x;
-                a.square();
+                // YY = Y1^2
+                let mut yy = self.y;
+                yy.square();
 
-                // B = Y1^2
-                let mut b = self.y;
-                b.square();
+                // YYYY = YY^2
+                let mut yyyy = yy;
+                yyyy.square();
 
-                // C = B^2
-                let mut c = b;
-                c.square();
+                // ZZ = Z1^2
+                let mut zz = self.z;
+                zz.square();
 
-                // D = 2*((X1+B)2-A-C)
-                let mut d = self.x;
-                d.add_assign(&b);
-                d.square();
-                d.sub_assign(&a);
-                d.sub_assign(&c);
-                d.double();
+                // S = 2*((X1+YY)^2-XX-YYYY)
+                let mut s = self.x;
+                s.add_assign(&yy);
+                s.square();
+                s.sub_assign(&xx);
+                s.sub_assign(&yyyy);
+                s.double();
 
-                // E = 3*A
-                let mut e = a;
-                e.double();
-                e.add_assign(&a);
+                // M = 3*XX + a*ZZ^2
+                let mut m = zz;
+                m.square();
+                m.mul_assign(&Self::get_coeff_a());
+                m.add_assign(&xx);
+                m.add_assign(&xx);
+                m.add_assign(&xx);
 
-                // F = E^2
-                let mut f = e;
-                f.square();
+                // T = M^2 - 2*S
+                let mut t = m;
+                t.square();
+                t.sub_assign(&s);
+                t.sub_assign(&s);
 
-                // Z3 = 2*Y1*Z1
-                self.z.mul_assign(&self.y);
-                self.z.double();
+                // X3 = T
+                self.x = t;
 
-                // X3 = F-2*D
-                self.x = f;
-                self.x.sub_assign(&d);
-                self.x.sub_assign(&d);
+                // Z3 = (Y1 + Z1)^2 - YY - ZZ
+                self.z.add_assign(&self.y);
+                self.z.square();
+                self.z.sub_assign(&yy);
+                self.z.sub_assign(&zz);
 
-                // Y3 = E*(D-X3)-8*C
-                self.y = d;
-                self.y.sub_assign(&self.x);
-                self.y.mul_assign(&e);
-                c.double();
-                c.double();
-                c.double();
-                self.y.sub_assign(&c);
+                // Y3 = M*(S - T) - 8*YYYY
+                self.y = s;
+                self.y.sub_assign(&t);
+                self.y.mul_assign(&m);
+                yyyy.double();
+                yyyy.double();
+                yyyy.double();
+                self.y.sub_assign(&yyyy);
             }
 
+            // https://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html#addition-add-2007-bl
+            #[inline(always)]
             fn add_assign(&mut self, other: &Self) {
                 if self.is_zero() {
                     *self = *other;
@@ -358,8 +395,6 @@ macro_rules! curve_impl {
                 if other.is_zero() {
                     return;
                 }
-
-                // http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#addition-add-2007-bl
 
                 // Z1Z1 = Z1^2
                 let mut z1z1 = self.z;
@@ -392,12 +427,6 @@ macro_rules! curve_impl {
                     self.double();
                 } else {
                     // If we're adding -a and a together, self.z becomes zero as H becomes zero.
-
-                    if u1 == u2 {
-                        // The two points are equal, so we double.
-                        (*self) = Self::zero();
-                        return;
-                    }
 
                     // H = U2-U1
                     let mut h = u2;
@@ -445,6 +474,9 @@ macro_rules! curve_impl {
                 }
             }
 
+            // For Z2 = 1
+            // https://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html#addition-madd-2007-bl
+            #[inline(always)]
             fn add_assign_mixed(&mut self, other: &Self::Affine) {
                 if other.is_zero() {
                     return;
@@ -456,8 +488,6 @@ macro_rules! curve_impl {
                     self.z = $basefield::one();
                     return;
                 }
-
-                // http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#addition-madd-2007-bl
 
                 // Z1Z1 = Z1^2
                 let mut z1z1 = self.z;
@@ -527,19 +557,20 @@ macro_rules! curve_impl {
                 }
             }
 
+            #[inline(always)]
             fn negate(&mut self) {
                 if !self.is_zero() {
                     self.y.negate()
                 }
             }
 
+            #[inline(always)]
             fn mul_assign<S: Into<<Self::Scalar as PrimeField>::Repr>>(&mut self, other: S) {
                 let mut res = Self::zero();
 
                 let mut found_one = false;
 
-                for i in BitIterator::new(other.into())
-                {
+                for i in BitIterator::new(other.into()) {
                     if found_one {
                         res.double();
                     } else {
@@ -554,14 +585,17 @@ macro_rules! curve_impl {
                 *self = res;
             }
 
+            #[inline(always)]
             fn into_affine(&self) -> $affine {
                 (*self).into()
             }
 
+            #[inline(always)]
             fn recommended_wnaf_for_scalar(scalar: <Self::Scalar as PrimeField>::Repr) -> usize {
                 Self::empirical_recommended_wnaf_for_scalar(scalar)
             }
 
+            #[inline(always)]
             fn recommended_wnaf_for_num_scalars(num_scalars: usize) -> usize {
                 Self::empirical_recommended_wnaf_for_num_scalars(num_scalars)
             }
@@ -570,6 +604,7 @@ macro_rules! curve_impl {
         // The affine point X, Y is represented in the jacobian
         // coordinates with Z = 1.
         impl From<$affine> for $projective {
+            #[inline(always)]
             fn from(p: $affine) -> $projective {
                 if p.is_zero() {
                     $projective::zero()
@@ -577,7 +612,7 @@ macro_rules! curve_impl {
                     $projective {
                         x: p.x,
                         y: p.y,
-                        z: $basefield::one()
+                        z: $basefield::one(),
                     }
                 }
             }
@@ -586,6 +621,7 @@ macro_rules! curve_impl {
         // The projective point X, Y, Z is represented in the affine
         // coordinates as X/Z^2, Y/Z^3.
         impl From<$projective> for $affine {
+            #[inline(always)]
             fn from(p: $projective) -> $affine {
                 if p.is_zero() {
                     $affine::zero()
@@ -594,7 +630,7 @@ macro_rules! curve_impl {
                     $affine {
                         x: p.x,
                         y: p.y,
-                        infinity: false
+                        infinity: false,
                     }
                 } else {
                     // Z is nonzero, so it must have an inverse in a field.
@@ -614,21 +650,21 @@ macro_rules! curve_impl {
                     $affine {
                         x: x,
                         y: y,
-                        infinity: false
+                        infinity: false,
                     }
                 }
             }
         }
-    }
+    };
 }
 
 pub mod g1 {
-    use super::super::{Bn256, Fq, Fq12, FqRepr, Fr, FrRepr};
+    use super::super::{Fq, Fq3, Fq6, FqRepr, Fr, FrRepr, Mnt6};
     use super::g2::G2Affine;
     use ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, SqrtField};
+    use crate::{RawEncodable, CurveAffine, CurveProjective, EncodedPoint, GroupDecodingError, Engine};
     use rand::{Rand, Rng};
     use std::fmt;
-    use crate::{RawEncodable, CurveAffine, CurveProjective, EncodedPoint, Engine, GroupDecodingError};
 
     curve_impl!(
         "G1",
@@ -642,97 +678,8 @@ pub mod g1 {
         G2Affine
     );
 
-    impl RawEncodable for G1Affine {
-        fn into_raw_uncompressed_le(&self) -> Self::Uncompressed {
-            let mut res = Self::Uncompressed::empty();
-            {
-                let mut writer = &mut res.0[..];
-
-                self.x.into_raw_repr().write_le(&mut writer).unwrap();
-                self.y.into_raw_repr().write_le(&mut writer).unwrap();
-            }
-
-            res
-        }
-
-        /// Creates a point from raw encoded coordinates without checking on curve
-        fn from_raw_uncompressed_le_unchecked(
-            encoded: &Self::Uncompressed, 
-            _infinity: bool
-        ) -> Result<Self, GroupDecodingError> {
-            let copy = encoded.0;
-
-            if copy.iter().all(|b| *b == 0) {
-                return Ok(Self::zero());
-            }
-
-            let mut x = FqRepr([0; 4]);
-            let mut y = FqRepr([0; 4]);
-
-            {
-                let mut reader = &copy[..];
-                x.read_le(&mut reader).unwrap();
-                y.read_le(&mut reader).unwrap();
-            }
-
-            Ok(G1Affine {
-                x: Fq::from_raw_repr(x).map_err(|e| {
-                    GroupDecodingError::CoordinateDecodingError("x coordinate", e)
-                })?,
-                y: Fq::from_raw_repr(y).map_err(|e| {
-                    GroupDecodingError::CoordinateDecodingError("y coordinate", e)
-                })?,
-                infinity: false,
-            })
-        }
-
-        fn from_raw_uncompressed_le(encoded: &Self::Uncompressed, _infinity: bool) -> Result<Self, GroupDecodingError> {
-            let affine = Self::from_raw_uncompressed_le_unchecked(&encoded, _infinity)?;
-
-            if !affine.is_on_curve() {
-                Err(GroupDecodingError::NotOnCurve)
-            } else {
-                Ok(affine)
-            }
-        }
-    }
-
     #[derive(Copy, Clone)]
-    pub struct G1Uncompressed([u8; 64]);
-
-    impl Rand for G1 {
-        fn rand<R: Rng>(rng: &mut R) -> Self {
-            loop {
-                let x = rng.gen();
-                let greatest = rng.gen();
-
-                if let Some(p) = G1Affine::get_point_from_x(x, greatest) {
-                    if !p.is_zero() {
-                        if p.is_on_curve() {
-                            return p.into_projective();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    impl Rand for G1Affine {
-        fn rand<R: Rng>(rng: &mut R) -> Self {
-            loop {
-                let x = rng.gen();
-                let greatest = rng.gen();
-
-                if let Some(p) = G1Affine::get_point_from_x(x, greatest) {
-                    if !p.is_zero() {
-                        if p.is_on_curve() {
-                            return p;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    pub struct G1Uncompressed([u8; 192]);
 
     impl AsRef<[u8]> for G1Uncompressed {
         fn as_ref(&self) -> &[u8] {
@@ -756,16 +703,18 @@ pub mod g1 {
         type Affine = G1Affine;
 
         fn empty() -> Self {
-            G1Uncompressed([0; 64])
+            G1Uncompressed([0; 192])
         }
         fn size() -> usize {
-            64
+            192
         }
         fn into_affine(&self) -> Result<G1Affine, GroupDecodingError> {
             let affine = self.into_affine_unchecked()?;
 
             if !affine.is_on_curve() {
                 Err(GroupDecodingError::NotOnCurve)
+            } else if !affine.is_in_correct_subgroup_assuming_on_curve() {
+                Err(GroupDecodingError::NotInSubgroup)
             } else {
                 Ok(affine)
             }
@@ -773,6 +722,11 @@ pub mod g1 {
         fn into_affine_unchecked(&self) -> Result<G1Affine, GroupDecodingError> {
             // Create a copy of this representation.
             let mut copy = self.0;
+
+            if copy[0] & (1 << 7) != 0 {
+                // Distinguisher bit is set, but this should be uncompressed!
+                return Err(GroupDecodingError::UnexpectedCompressionMode);
+            }
 
             if copy[0] & (1 << 6) != 0 {
                 // This is the point at infinity, which means that if we mask away
@@ -786,17 +740,17 @@ pub mod g1 {
                     Err(GroupDecodingError::UnexpectedInformation)
                 }
             } else {
-                if copy[0] & (1 << 7) != 0 {
+                if copy[0] & (1 << 5) != 0 {
                     // The bit indicating the y-coordinate should be lexicographically
                     // largest is set, but this is an uncompressed element.
                     return Err(GroupDecodingError::UnexpectedInformation);
                 }
 
-                // Unset the two most significant bits.
-                copy[0] &= 0x3f;
+                // Unset the three most significant bits.
+                copy[0] &= 0x1f;
 
-                let mut x = FqRepr([0; 4]);
-                let mut y = FqRepr([0; 4]);
+                let mut x = FqRepr([0; 12]);
+                let mut y = FqRepr([0; 12]);
 
                 {
                     let mut reader = &copy[..];
@@ -835,7 +789,7 @@ pub mod g1 {
     }
 
     #[derive(Copy, Clone)]
-    pub struct G1Compressed([u8; 32]);
+    pub struct G1Compressed([u8; 96]);
 
     impl AsRef<[u8]> for G1Compressed {
         fn as_ref(&self) -> &[u8] {
@@ -859,21 +813,30 @@ pub mod g1 {
         type Affine = G1Affine;
 
         fn empty() -> Self {
-            G1Compressed([0; 32])
+            G1Compressed([0; 96])
         }
         fn size() -> usize {
-            32
+            96
         }
         fn into_affine(&self) -> Result<G1Affine, GroupDecodingError> {
             let affine = self.into_affine_unchecked()?;
 
             // NB: Decompression guarantees that it is on the curve already.
 
-            Ok(affine)
+            if !affine.is_in_correct_subgroup_assuming_on_curve() {
+                Err(GroupDecodingError::NotInSubgroup)
+            } else {
+                Ok(affine)
+            }
         }
         fn into_affine_unchecked(&self) -> Result<G1Affine, GroupDecodingError> {
             // Create a copy of this representation.
             let mut copy = self.0;
+
+            if copy[0] & (1 << 7) == 0 {
+                // Distinguisher bit isn't set.
+                return Err(GroupDecodingError::UnexpectedCompressionMode);
+            }
 
             if copy[0] & (1 << 6) != 0 {
                 // This is the point at infinity, which means that if we mask away
@@ -889,12 +852,12 @@ pub mod g1 {
             } else {
                 // Determine if the intended y coordinate must be greater
                 // lexicographically.
-                let greatest = copy[0] & (1 << 7) != 0;
+                let greatest = copy[0] & (1 << 5) != 0;
 
-                // Unset the two most significant bits.
-                copy[0] &= 0x3f;
+                // Unset the three most significant bits.
+                copy[0] &= 0x1f;
 
-                let mut x = FqRepr([0; 4]);
+                let mut x = FqRepr([0; 12]);
 
                 {
                     let mut reader = &copy[..];
@@ -929,18 +892,23 @@ pub mod g1 {
                 // Set the third most significant bit if the correct y-coordinate
                 // is lexicographically largest.
                 if affine.y > negy {
-                    res.0[0] |= 1 << 7;
+                    res.0[0] |= 1 << 5;
                 }
             }
+
+            // Set highest bit to distinguish this as a compressed element.
+            res.0[0] |= 1 << 7;
 
             res
         }
     }
 
     impl G1Affine {
-        // fn scale_by_cofactor(&self) -> G1 {
-        //     self.into_projective()
-        // }
+        fn scale_by_cofactor(&self) -> G1 {
+            // G1 cofactor = 1
+            // just return as G1 ($projective) element
+            self.into_projective()
+        }
 
         fn get_generator() -> Self {
             G1Affine {
@@ -950,16 +918,77 @@ pub mod g1 {
             }
         }
 
+        fn get_coeff_a() -> Fq {
+            super::super::fq::A_COEFF
+        }
+
         fn get_coeff_b() -> Fq {
             super::super::fq::B_COEFF
         }
 
-        fn perform_pairing(&self, other: &G2Affine) -> Fq12 {
-            super::super::Bn256::pairing(*self, *other)
+        fn perform_pairing(&self, other: &G2Affine) -> Fq6 {
+            super::super::Mnt6::pairing(*self, *other)
+        }
+    }
+
+        impl RawEncodable for G1Affine {
+        fn into_raw_uncompressed_le(&self) -> Self::Uncompressed {
+            let mut res = Self::Uncompressed::empty();
+            {
+                let mut writer = &mut res.0[..];
+
+                self.x.into_raw_repr().write_le(&mut writer).unwrap();
+                self.y.into_raw_repr().write_le(&mut writer).unwrap();
+            }
+
+            res
+        }
+
+        fn from_raw_uncompressed_le_unchecked(
+            encoded: &Self::Uncompressed, 
+            _infinity: bool
+        ) -> Result<Self, GroupDecodingError> {
+            let copy = encoded.0;
+            if copy.iter().all(|b| *b == 0) {
+                return Ok(Self::zero());
+            }
+
+            let mut x = FqRepr([0; 12]);
+            let mut y = FqRepr([0; 12]);
+
+            {
+                let mut reader = &copy[..];
+                x.read_le(&mut reader).unwrap();
+                y.read_le(&mut reader).unwrap();
+            }
+
+            Ok(G1Affine {
+                x: Fq::from_raw_repr(x).map_err(|e| {
+                    GroupDecodingError::CoordinateDecodingError("x coordinate", e)
+                })?,
+                y: Fq::from_raw_repr(y).map_err(|e| {
+                    GroupDecodingError::CoordinateDecodingError("y coordinate", e)
+                })?,
+                infinity: false,
+            })
+        }
+
+        fn from_raw_uncompressed_le(encoded: &Self::Uncompressed, _infinity: bool) -> Result<Self, GroupDecodingError> {
+            let affine = Self::from_raw_uncompressed_le_unchecked(&encoded, _infinity)?;
+
+            if !affine.is_on_curve() {
+                Err(GroupDecodingError::NotOnCurve)
+            } else {
+                Ok(affine)
+            }
         }
     }
 
     impl G1 {
+        fn get_coeff_a() -> Fq {
+            super::super::fq::A_COEFF
+        }
+
         fn empirical_recommended_wnaf_for_scalar(scalar: FrRepr) -> usize {
             let num_bits = scalar.num_bits() as usize;
 
@@ -989,31 +1018,24 @@ pub mod g1 {
         }
     }
 
-    #[derive(Clone, Debug)]
-    pub struct G1Prepared(pub(crate) G1Affine);
-
-    impl G1Prepared {
-        pub fn is_zero(&self) -> bool {
-            self.0.is_zero()
-        }
-
-        pub fn from_affine(p: G1Affine) -> Self {
-            G1Prepared(p)
-        }
+    #[derive(Eq, PartialEq, Copy, Clone, Debug)]
+    pub struct G1Prepared {
+        pub p:       G1Affine,
+        pub x_by_twist: Fq3,
+        pub y_by_twist: Fq3,
     }
 
     #[test]
     fn g1_generator() {
         use SqrtField;
-
         let mut x = Fq::zero();
-        let mut i = 0;
         loop {
-            // y^2 = x^3 + b
+            // y^2 = x^3 + ax + b
             let mut rhs = x;
-            rhs.square();
-            rhs.mul_assign(&x);
-            rhs.add_assign(&G1Affine::get_coeff_b());
+            rhs.square(); // x^2
+            rhs.add_assign(&G1Affine::get_coeff_a()); // x^2 + a
+            rhs.mul_assign(&x); // x^3 + ax
+            rhs.add_assign(&G1Affine::get_coeff_b()); // x^3 + ax + b
 
             if let Some(y) = rhs.sqrt() {
                 let yrepr = y.into_repr();
@@ -1026,86 +1048,233 @@ pub mod g1 {
                     y: if yrepr < negyrepr { y } else { negy },
                     infinity: false,
                 };
-
-                let g1 = p.into_projective();
-                if !g1.is_zero() {
-                    assert_eq!(i, 1);
-                    let g1 = G1Affine::from(g1);
-
-                    assert_eq!(g1, G1Affine::one());
-                    break;
-                }
+                assert!(p.is_on_curve());
+                break;
             }
-
-            i += 1;
             x.add_assign(&Fq::one());
         }
     }
 
+    #[cfg(test)]
+    use crate::tests::curve::curve_tests;
+
     #[test]
-
-    fn test_base_point_addition_and_doubling() {
-        let mut a = G1::one();
-        print!("{}\n\n", a);
-
-        a.add_assign(&G1::one());
-
-        print!("{}\n\n", a);
+    fn test_curve_g1() {
+        curve_tests::<G1>();
+        crate::tests::curve::random_transformation_tests::<G1>();
     }
 
     #[test]
-    fn g1_curve_tests() {
-        crate::tests::curve::curve_tests::<G1>();
-        crate::tests::curve::random_transformation_tests::<G1>();
+    fn test_g1_addition_correctness() {
+        let mut p = G1 {
+            x: Fq::from_repr(FqRepr([
+                0xfa3269471af7fc29,
+                0xe75814faa6e78c3,
+                0x49a7d9cd2dd6aa5b,
+                0x78cb72dd40780e8f,
+                0xa628467279c19e1,
+                0xaa2dabe7aacacfa4,
+                0xfd0449a399f5bc10,
+                0xcc69871930e2b94,
+                0xbd359add50190868,
+                0xa430620337195647,
+                0x870751af8ead4105,
+                0x109e8f3cec114,
+            ]))
+            .unwrap(),
+            y: Fq::from_repr(FqRepr([
+                0xc072a5045a0eb716,
+                0xaa7ea85fd88b5c40,
+                0x28ba48f5173291fa,
+                0x15530eef5481573d,
+                0xdd1ad67618327dac,
+                0xf5c0666ed192a3b2,
+                0x2b70dfe53a20a8ce,
+                0x3d354613aff0bd6a,
+                0x7a0034d2e30de04b,
+                0xc3eabcb628fe0291,
+                0x5b3196b3e0ce308a,
+                0xeda96045ae66,
+            ]))
+            .unwrap(),
+            z: Fq::one(),
+        };
+
+        p.add_assign(&G1 {
+            x: Fq::from_repr(FqRepr([
+                0xb6f0a8e0b589ce8b,
+                0x11d2007be6d43bcb,
+                0x8cf5e84f9d1455e7,
+                0xb3948e0450cfad43,
+                0x3150075f6db70ae1,
+                0x227254395f6e7f5c,
+                0xd4013b9d00959599,
+                0xb9b8b393ab316213,
+                0x7cdd3853be3db699,
+                0xb00bdce397d661ff,
+                0xc1e075f0736f6f8d,
+                0x1ae55bf692b13,
+            ]))
+            .unwrap(),
+            y: Fq::from_repr(FqRepr([
+                0x39354a603130591,
+                0x65ef5dc8a3bb6cad,
+                0x3dc56a836204653f,
+                0x189514b20bb6a1e,
+                0x51d29d2c02d4e641,
+                0x1f7a4d415b6be19a,
+                0x144dc1b1ffcc41b0,
+                0x485d891f0870162b,
+                0xa8a4ca2c5c8d5dd0,
+                0xbfb746c7be9ecbfa,
+                0x2bd71fee34ba3197,
+                0x17c99c45f0909,
+            ]))
+            .unwrap(),
+            z: Fq::one(),
+        });
+
+        let p = G1Affine::from(p);
+
+        assert_eq!(
+            p,
+            G1Affine {
+                x: Fq::from_repr(FqRepr([
+                    0x4075f3c009273e85,
+                    0x5d4bd293f6bcc9e6,
+                    0x8e27c491f7573c54,
+                    0xbd6387c831a6ca54,
+                    0xc2dca28819554d1e,
+                    0x347a4cfd65ecc90b,
+                    0xcf2e71ba8fa7bb4c,
+                    0x72338f027482c52c,
+                    0x870a69b5ee0b8e64,
+                    0xe54577a0ca314b35,
+                    0x4227f07bb68b1667,
+                    0xf2bb18a3958a,
+                ]))
+                .unwrap(),
+                y: Fq::from_repr(FqRepr([
+                    0x197f59872551b337,
+                    0xea7728119a1c4aee,
+                    0xa86d3ead69ab4e97,
+                    0x2310388bf7be5af3,
+                    0x3e2810110e19cfb2,
+                    0x71ff5fc55bf03cc9,
+                    0xe6b3608817306d89,
+                    0xeb20fd323630411d,
+                    0x7294ef5c1a0476b9,
+                    0x33ed661992c99ae2,
+                    0x593721f98fddb53d,
+                    0xfd983ca844c2,
+                ]))
+                .unwrap(),
+                infinity: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_g1_doubling_correctness() {
+        let mut p = G1 {
+            x: Fq::from_repr(FqRepr([
+                0xb19aed9b3dc15f89,
+                0x29de7cb8bc671412,
+                0x4c7542b9dea227d4,
+                0x5dc4af9e491c7a5f,
+                0xdee5857fa6bc0ca2,
+                0xb26ed03d5845df9a,
+                0x55dd26801730f0c7,
+                0x277ca14f3ca740dc,
+                0xcd92eab91d54a80b,
+                0xb0511416f2a0a418,
+                0x3002007605fcca03,
+                0x157101f321264,
+            ]))
+            .unwrap(),
+            y: Fq::from_repr(FqRepr([
+                0xf1b7d78c336187eb,
+                0x759be3b9a52861ef,
+                0xbf535e3141e47420,
+                0xc88cb29d5479ce23,
+                0x8048c51c4a374a81,
+                0xad6e60b0a50a47a7,
+                0x15705b02b85cad3f,
+                0x477910253eb87de5,
+                0xe8c2425b4c8d3b25,
+                0x8e64e07d1d7ab34a,
+                0x3a4865ebe3d0bc24,
+                0xc88df4f8a73c,
+            ]))
+            .unwrap(),
+            z: Fq::one(),
+        };
+
+        p.double();
+
+        let p = G1Affine::from(p);
+
+        assert_eq!(
+            p,
+            G1Affine {
+                x: Fq::from_repr(FqRepr([
+                    0x532c93cfcb4a16fa,
+                    0x5114f616cce055a6,
+                    0xf314349b3be478bd,
+                    0x421f32dbdfefbd72,
+                    0xf77cce337c6eacad,
+                    0xee7b6035844afe4d,
+                    0x31c3609e58efa430,
+                    0xa135db8c9f8a40bf,
+                    0xa4e02fe151db05ee,
+                    0x6ab8eb33c99569d3,
+                    0xf610aaeea6d03ac5,
+                    0x124da8c081bc9,
+                ]))
+                .unwrap(),
+                y: Fq::from_repr(FqRepr([
+                    0xf2e6d63d02d690d0,
+                    0x742166cca7aa2dd1,
+                    0xf878b8f47cd2b343,
+                    0xbb6c5aa896dba201,
+                    0x844652a50840d74c,
+                    0xfed24238534ec2be,
+                    0x32d3c6d354e0fec4,
+                    0xb30eb0ae74a3fe0a,
+                    0xa799f9a48370cded,
+                    0x7511b3ce4a912397,
+                    0x537b51139b80f575,
+                    0x86c594e940e2,
+                ]))
+                .unwrap(),
+                infinity: false,
+            }
+        );
     }
 }
 
 pub mod g2 {
-    use super::super::{Bn256, Fq, Fq12, Fq2, FqRepr, Fr, FrRepr};
+    use super::super::{Fq, Fq3, Fq6, FqRepr, Fr, FrRepr, Mnt6};
     use super::g1::G1Affine;
     use ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, SqrtField};
+    use crate::{CurveAffine, CurveProjective, EncodedPoint, GroupDecodingError, Engine};
     use rand::{Rand, Rng};
     use std::fmt;
-    use crate::{CurveAffine, CurveProjective, EncodedPoint, Engine, GroupDecodingError};
 
     curve_impl!(
         "G2",
         G2,
         G2Affine,
         G2Prepared,
-        Fq2,
+        Fq3,
         Fr,
         G2Uncompressed,
         G2Compressed,
         G1Affine
     );
 
-    impl Rand for G2 {
-        fn rand<R: Rng>(rng: &mut R) -> Self {
-            loop {
-                let x = rng.gen();
-                let greatest = rng.gen();
-
-                if let Some(p) = G2Affine::get_point_from_x(x, greatest) {
-                    if !p.is_zero() {
-                        if p.is_on_curve() {
-                            return p.scale_by_cofactor();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    impl Rand for G2Affine {
-        fn rand<R: Rng>(rng: &mut R) -> Self {
-            let r = G2::rand(rng);
-            return r.into_affine();
-        }
-    }
-
     #[derive(Copy, Clone)]
-    pub struct G2Uncompressed([u8; 128]);
+    pub struct G2Uncompressed([u8; 576]);
 
     impl AsRef<[u8]> for G2Uncompressed {
         fn as_ref(&self) -> &[u8] {
@@ -1129,16 +1298,18 @@ pub mod g2 {
         type Affine = G2Affine;
 
         fn empty() -> Self {
-            G2Uncompressed([0; 128])
+            G2Uncompressed([0; 576])
         }
         fn size() -> usize {
-            128
+            576
         }
         fn into_affine(&self) -> Result<G2Affine, GroupDecodingError> {
             let affine = self.into_affine_unchecked()?;
 
             if !affine.is_on_curve() {
                 Err(GroupDecodingError::NotOnCurve)
+            } else if !affine.is_in_correct_subgroup_assuming_on_curve() {
+                Err(GroupDecodingError::NotInSubgroup)
             } else {
                 Ok(affine)
             }
@@ -1164,39 +1335,54 @@ pub mod g2 {
                     Err(GroupDecodingError::UnexpectedInformation)
                 }
             } else {
+                if copy[0] & (1 << 5) != 0 {
+                    // The bit indicating the y-coordinate should be lexicographically
+                    // largest is set, but this is an uncompressed element.
+                    return Err(GroupDecodingError::UnexpectedInformation);
+                }
 
-                // Unset the two most significant bits.
-                copy[0] &= 0x3f;
+                // Unset the three most significant bits.
+                copy[0] &= 0x1f;
 
-                let mut x_c0 = FqRepr([0; 4]);
-                let mut x_c1 = FqRepr([0; 4]);
-                let mut y_c0 = FqRepr([0; 4]);
-                let mut y_c1 = FqRepr([0; 4]);
+                let mut x_c0 = FqRepr([0; 12]);
+                let mut x_c1 = FqRepr([0; 12]);
+                let mut x_c2 = FqRepr([0; 12]);
+                let mut y_c0 = FqRepr([0; 12]);
+                let mut y_c1 = FqRepr([0; 12]);
+                let mut y_c2 = FqRepr([0; 12]);
 
                 {
                     let mut reader = &copy[..];
 
+                    x_c2.read_be(&mut reader).unwrap();
                     x_c1.read_be(&mut reader).unwrap();
                     x_c0.read_be(&mut reader).unwrap();
+                    y_c2.read_be(&mut reader).unwrap();
                     y_c1.read_be(&mut reader).unwrap();
                     y_c0.read_be(&mut reader).unwrap();
                 }
 
                 Ok(G2Affine {
-                    x: Fq2 {
+                    x: Fq3 {
                         c0: Fq::from_repr(x_c0).map_err(|e| {
                             GroupDecodingError::CoordinateDecodingError("x coordinate (c0)", e)
                         })?,
                         c1: Fq::from_repr(x_c1).map_err(|e| {
                             GroupDecodingError::CoordinateDecodingError("x coordinate (c1)", e)
                         })?,
+                        c2: Fq::from_repr(x_c2).map_err(|e| {
+                            GroupDecodingError::CoordinateDecodingError("x coordinate (c2)", e)
+                        })?,
                     },
-                    y: Fq2 {
+                    y: Fq3 {
                         c0: Fq::from_repr(y_c0).map_err(|e| {
                             GroupDecodingError::CoordinateDecodingError("y coordinate (c0)", e)
                         })?,
                         c1: Fq::from_repr(y_c1).map_err(|e| {
                             GroupDecodingError::CoordinateDecodingError("y coordinate (c1)", e)
+                        })?,
+                        c2: Fq::from_repr(y_c2).map_err(|e| {
+                            GroupDecodingError::CoordinateDecodingError("y coordinate (c2)", e)
                         })?,
                     },
                     infinity: false,
@@ -1224,7 +1410,7 @@ pub mod g2 {
     }
 
     #[derive(Copy, Clone)]
-    pub struct G2Compressed([u8; 64]);
+    pub struct G2Compressed([u8; 288]);
 
     impl AsRef<[u8]> for G2Compressed {
         fn as_ref(&self) -> &[u8] {
@@ -1248,21 +1434,30 @@ pub mod g2 {
         type Affine = G2Affine;
 
         fn empty() -> Self {
-            G2Compressed([0; 64])
+            G2Compressed([0; 288])
         }
         fn size() -> usize {
-            64
+            288
         }
         fn into_affine(&self) -> Result<G2Affine, GroupDecodingError> {
             let affine = self.into_affine_unchecked()?;
 
             // NB: Decompression guarantees that it is on the curve already.
-            
-            Ok(affine)
+
+            if !affine.is_in_correct_subgroup_assuming_on_curve() {
+                Err(GroupDecodingError::NotInSubgroup)
+            } else {
+                Ok(affine)
+            }
         }
         fn into_affine_unchecked(&self) -> Result<G2Affine, GroupDecodingError> {
             // Create a copy of this representation.
             let mut copy = self.0;
+
+            if copy[0] & (1 << 7) == 0 {
+                // Distinguisher bit isn't set.
+                return Err(GroupDecodingError::UnexpectedCompressionMode);
+            }
 
             if copy[0] & (1 << 6) != 0 {
                 // This is the point at infinity, which means that if we mask away
@@ -1278,28 +1473,33 @@ pub mod g2 {
             } else {
                 // Determine if the intended y coordinate must be greater
                 // lexicographically.
-                let greatest = copy[0] & (1 << 7) != 0;
+                let greatest = copy[0] & (1 << 5) != 0;
 
-                // Unset the two most significant bits.
-                copy[0] &= 0x3f;
+                // Unset the three most significant bits.
+                copy[0] &= 0x1f;
 
-                let mut x_c1 = FqRepr([0; 4]);
-                let mut x_c0 = FqRepr([0; 4]);
+                let mut x_c2 = FqRepr([0; 12]);
+                let mut x_c1 = FqRepr([0; 12]);
+                let mut x_c0 = FqRepr([0; 12]);
 
                 {
                     let mut reader = &copy[..];
 
+                    x_c2.read_be(&mut reader).unwrap();
                     x_c1.read_be(&mut reader).unwrap();
                     x_c0.read_be(&mut reader).unwrap();
                 }
 
                 // Interpret as Fq element.
-                let x = Fq2 {
+                let x = Fq3 {
                     c0: Fq::from_repr(x_c0).map_err(|e| {
                         GroupDecodingError::CoordinateDecodingError("x coordinate (c0)", e)
                     })?,
                     c1: Fq::from_repr(x_c1).map_err(|e| {
                         GroupDecodingError::CoordinateDecodingError("x coordinate (c1)", e)
+                    })?,
+                    c2: Fq::from_repr(x_c2).map_err(|e| {
+                        GroupDecodingError::CoordinateDecodingError("x coordinate (c2)", e)
                     })?,
                 };
 
@@ -1327,55 +1527,64 @@ pub mod g2 {
                 // Set the third most significant bit if the correct y-coordinate
                 // is lexicographically largest.
                 if affine.y > negy {
-                    res.0[0] |= 1 << 7;
+                    res.0[0] |= 1 << 5;
                 }
             }
+
+            // Set highest bit to distinguish this as a compressed element.
+            res.0[0] |= 1 << 7;
 
             res
         }
     }
 
     impl G2Affine {
-        fn scale_by_cofactor(&self) -> G2 {
-            // G2 cofactor = 2p - n = 2q - r
-            // 0x30644e72e131a029b85045b68181585e06ceecda572a2489345f2299c0f9fa8d
-            let cofactor = BitIterator::new([
-                0x345f2299c0f9fa8d,
-                0x06ceecda572a2489,
-                0xb85045b68181585e,
-                0x30644e72e131a029,
-            ]);
-            self.mul_bits(cofactor)
-        }
-
         fn get_generator() -> Self {
             G2Affine {
-                x: Fq2 {
+                x: Fq3 {
                     c0: super::super::fq::G2_GENERATOR_X_C0,
                     c1: super::super::fq::G2_GENERATOR_X_C1,
+                    c2: super::super::fq::G2_GENERATOR_X_C2,
                 },
-                y: Fq2 {
+                y: Fq3 {
                     c0: super::super::fq::G2_GENERATOR_Y_C0,
                     c1: super::super::fq::G2_GENERATOR_Y_C1,
+                    c2: super::super::fq::G2_GENERATOR_Y_C2,
                 },
                 infinity: false,
             }
         }
 
-        fn get_coeff_b() -> Fq2 {
-            super::super::fq::B_COEFF_FQ2
-            // Fq2 {
-            //     c0: super::super::fq::B_COEFF,
-            //     c1: super::super::fq::B_COEFF,
-            // }
+        pub fn get_coeff_a() -> Fq3 {
+            super::super::fq::G2_A_COEFF
         }
 
-        fn perform_pairing(&self, other: &G1Affine) -> Fq12 {
-            super::super::Bn256::pairing(*other, *self)
+        fn get_coeff_b() -> Fq3 {
+            super::super::fq::G2_B_COEFF
+        }
+
+        fn scale_by_cofactor(&self) -> G2 {
+            // Multiply by G2_cofactor and return the projective associated point
+            let mut projective = self.into_projective();
+            let mut cx = projective;
+            cx.mul_assign(super::super::fr::G2_COFACTOR_C);
+            projective.mul_assign(super::super::fr::MINUS_ONE);
+            projective.mul_assign(super::super::fr::G2_COFACTOR_B);
+            projective.add_assign(&cx);
+            projective.mul_assign(super::super::fr::G2_COFACTOR_A);
+            projective
+        }
+
+        fn perform_pairing(&self, other: &G1Affine) -> Fq6 {
+            super::super::Mnt6::pairing(*other, *self)
         }
     }
 
     impl G2 {
+        pub fn get_coeff_a() -> Fq3 {
+            super::super::fq::G2_A_COEFF
+        }
+
         fn empirical_recommended_wnaf_for_scalar(scalar: FrRepr) -> usize {
             let num_bits = scalar.num_bits() as usize;
 
@@ -1405,313 +1614,101 @@ pub mod g2 {
         }
     }
 
-    #[derive(Clone, Debug)]
+        #[derive(Eq, PartialEq, Clone, Debug)]
     pub struct G2Prepared {
-        pub(crate) coeffs: Vec<(Fq2, Fq2, Fq2)>,
-        pub(crate) infinity: bool,
+        pub p:                     G2Affine,
+        pub x_over_twist:          Fq3,
+        pub y_over_twist:          Fq3,
+        pub double_coefficients:   Vec<AteDoubleCoefficients>,
+        pub addition_coefficients: Vec<AteAdditionCoefficients>,
     }
 
-    // This generator does not take a random element in Fp2
-    // and tries to increment it to be on a curve, but
-    // generates a random scalar and multiplies predefined generator by it
-
-    #[test]
-    fn g2_generator() {
-        use SqrtField;
-
-        let mut x = Fq2::zero();
-        let mut i = 0;
-        loop {
-            // y^2 = x^3 + b
-            let mut rhs = x;
-            rhs.square();
-            rhs.mul_assign(&x);
-            rhs.add_assign(&G2Affine::get_coeff_b());
-
-            if let Some(y) = rhs.sqrt() {
-                let mut negy = y;
-                negy.negate();
-
-                let p = G2Affine {
-                    x: x,
-                    y: if y < negy { y } else { negy },
-                    infinity: false,
-                };
-
-
-                let g2 = p.into_projective();
-                if !g2.is_zero() {
-                    assert_eq!(i, 0);
-                    let g2 = G2Affine::from(g2);
-
-                    assert_eq!(g2, G2Affine::one());
-                    break;
-                }
-            }
-
-            i += 1;
-            x.add_assign(&Fq2::one());
-        }
+    pub struct G2ProjectiveExtended {
+        pub x: Fq3,
+        pub y: Fq3,
+        pub z: Fq3,
+        pub t: Fq3,
     }
 
-    #[test]
-    fn test_generate_g2_in_subgroup() {
-        use SqrtField;
+    #[derive(Eq, PartialEq, Copy, Clone, Debug)]
+    pub struct AteDoubleCoefficients {
+        pub c_h:  Fq3,
+        pub c_4c: Fq3,
+        pub c_j:  Fq3,
+        pub c_l:  Fq3,
+    }
 
-        let mut x = Fq2::zero();
-        loop {
-            // y^2 = x^3 + b
-            let mut rhs = x;
-            rhs.square();
-            rhs.mul_assign(&x);
-            rhs.add_assign(&G2Affine::get_coeff_b());
-
-            if let Some(y) = rhs.sqrt() {
-                let mut negy = y;
-                negy.negate();
-
-                let p = G2Affine {
-                    x: x,
-                    y: if y < negy { y } else { negy },
-                    infinity: false,
-                };
-
-                let g2 = p.into_projective();
-                let mut minus_one = Fr::one();
-                minus_one.negate();
-
-                let mut expected_zero = p.mul(minus_one);
-                expected_zero.add_assign(&g2);
-
-                if !expected_zero.is_zero() {
-                    let p = expected_zero.into_affine();
-                    let scaled_by_cofactor = p.scale_by_cofactor();
-                    if scaled_by_cofactor.is_zero() {
-                        let g2 = G2Affine::from(expected_zero);
-                        println!("Invalid subgroup point = {}", g2);
-                        return;
-                    }
-                }
-            }
-
-            x.add_assign(&Fq2::one());
-        }
+    #[derive(Eq, PartialEq, Copy, Clone, Debug)]
+    pub struct AteAdditionCoefficients {
+        pub c_l1: Fq3,
+        pub c_rz: Fq3,
     }
 
     #[cfg(test)]
     use rand::{SeedableRng, XorShiftRng};
 
     #[test]
-    fn g2_generator_on_curve() {
+    fn g2_generator() {
         use SqrtField;
-
-        let gen = G2Affine::get_generator();
-        let x = gen.x;
-        // y^2 = x^3 + 3/xi
-        let mut rhs = x;
-        rhs.square();
-        rhs.mul_assign(&x);
-        rhs.add_assign(&G2Affine::get_coeff_b());
-
-        if let Some(y) = rhs.sqrt() {
-            let mut negy = y;
-            negy.negate();
-
-            let p = G2Affine {
-                x: x,
-                y: if y < negy { y } else { negy },
-                infinity: false,
-            };
-
-            assert_eq!(p.y, gen.y);
-            assert_eq!(p, G2Affine::one());
-            return;
+        let mut x = Fq3::zero();
+        loop {
+            let mut rhs = x;
+            rhs.square(); // x^2
+            rhs.add_assign(&G2Affine::get_coeff_a()); // x^2 + a
+            rhs.mul_assign(&x); // x^3 + ax
+            rhs.add_assign(&G2Affine::get_coeff_b()); // x^3 + ax + b
+            if let Some(y) = rhs.sqrt() {
+                let mut negy = y;
+                negy.negate();
+                let p = G2Affine {
+                    x: x,
+                    y: if y < negy { y } else { negy },
+                    infinity: false,
+                };
+                assert!(p.is_on_curve());
+                break;
+            }
+            x.add_assign(&Fq3::one());
         }
-        panic!();
     }
 
     #[test]
-    fn g2_curve_tests() {
+    fn g2_generator_on_curve() {
+        let gen = G2Affine::get_generator();
+
+        let mut lhs = gen.y;
+        lhs.square();
+
+        let mut rhs = gen.x;
+        rhs.square();
+        rhs.add_assign(&G2Affine::get_coeff_a());
+        rhs.mul_assign(&gen.x);
+        rhs.add_assign(&G2Affine::get_coeff_b());
+
+        assert_eq!(lhs, rhs);
+
+        // Test that generator belongs to the subgroup of order r
+        let mut gen_proj = gen.into_projective();
+        gen_proj.mul_assign(Fr::char());
+        assert!(gen_proj.is_zero());
+    }
+
+    #[test]
+    fn g2_cofactor_mnt6() {
+        let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+        for _ in 0..1000 {
+            let mut g = G2::rand(&mut rng);
+            g.mul_assign(Fr::char());
+            assert!(g.is_zero());
+        }
+    }
+
+    #[test]
+    fn test_curve_g2() {
         crate::tests::curve::curve_tests::<G2>();
         crate::tests::curve::random_transformation_tests::<G2>();
     }
 
-    #[test]
-
-    fn test_b_coeff() {
-        let b2 = G2Affine::get_coeff_b();
-        print!("{}\n\n", b2);
-    }
-
-    #[test]
-
-    fn test_base_point_addition_and_doubling() {
-        let mut two = G2::one();
-        two.add_assign(&G2::one());
-
-        let one = G2::one();
-
-        let mut three21 = two;
-        three21.add_assign(&one);
-
-        let mut three12 = one;
-        three12.add_assign(&two);
-
-        assert_eq!(three12, three21);
-    }
-
-    #[test]
-    fn test_addition_and_doubling() {
-    
-        let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..1000 {
-            let a = G2::rand(&mut rng);
-            assert!(a.into_affine().is_on_curve());
-            let b = G2::rand(&mut rng);
-            let c = G2::rand(&mut rng);
-            let a_affine = a.into_affine();
-            let b_affine = b.into_affine();
-            let c_affine = c.into_affine();
-
-            // a + a should equal the doubling
-            {
-                let mut aplusa = a;
-                aplusa.add_assign(&a);
-
-                let mut aplusamixed = a;
-                aplusamixed.add_assign_mixed(&a.into_affine());
-
-                let mut adouble = a;
-                adouble.double();
-
-                assert_eq!(aplusa, adouble);
-                assert_eq!(aplusamixed, adouble);
-            }
-
-            let mut ab = a;
-            ab.add_assign(&b);
-
-            let mut ba = b;
-            ba.add_assign(&a);
-
-            assert_eq!(ab, ba, "Addition should not depend on order");
-
-            let mut tmp = vec![G2::zero(); 6];
-
-            // (a + b) + c
-            tmp[0] = a;
-            tmp[0].add_assign(&b);
-            tmp[0].add_assign(&c);
-
-            // a + (b + c)
-            tmp[1] = b;
-            tmp[1].add_assign(&c);
-            tmp[1].add_assign(&a);
-
-            // (a + c) + b
-            tmp[2] = a;
-            tmp[2].add_assign(&c);
-            tmp[2].add_assign(&b);
-
-            // Mixed addition
-
-            // (a + b) + c
-            tmp[3] = a_affine.into_projective();
-            tmp[3].add_assign_mixed(&b_affine);
-            tmp[3].add_assign_mixed(&c_affine);
-
-            // a + (b + c)
-            tmp[4] = b_affine.into_projective();
-            tmp[4].add_assign_mixed(&c_affine);
-            tmp[4].add_assign_mixed(&a_affine);
-
-            // (a + c) + b
-            tmp[5] = a_affine.into_projective();
-            tmp[5].add_assign_mixed(&c_affine);
-            tmp[5].add_assign_mixed(&b_affine);
-
-            // Comparisons
-            for i in 0..6 {
-                for j in 0..6 {
-                    assert_eq!(tmp[i], tmp[j]);
-                    assert_eq!(tmp[i].into_affine(), tmp[j].into_affine());
-                }
-
-                assert!(tmp[i] != a);
-                assert!(tmp[i] != b);
-                assert!(tmp[i] != c);
-
-                assert!(a != tmp[i]);
-                assert!(b != tmp[i]);
-                assert!(c != tmp[i]);
-            }
- 
-        }
-    }
-
-    #[test]
-    fn random_negation_tests() {
-        let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..1000 {
-            // let r = G2::rand(&mut rng);
-            // assert!(r.into_affine().is_on_curve());
-
-            let mut r = G2::one();
-            let k = Fr::rand(&mut rng);
-            r.mul_assign(k);
-
-            let s = Fr::rand(&mut rng);
-            let mut sneg = s;
-            sneg.negate();
-
-            let mut t1 = r;
-            t1.mul_assign(s);
-
-            let mut t2 = r;
-            t2.mul_assign(sneg);
-
-            let mut t3 = t1;
-            t3.add_assign(&t2);
-            assert!(t3.is_zero());
-
-            let mut t4 = t1;
-            t4.add_assign_mixed(&t2.into_affine());
-            assert!(t4.is_zero());
-
-            t1.negate();
-            assert_eq!(t1, t2);
-        }
-    }
-
-    #[test]
-    fn mul_by_order_tests() {
-        let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        for _ in 0..1000 {
-            // let r = G2::rand(&mut rng);
-
-            let mut r = G2::one();
-            let k = Fr::rand(&mut rng);
-            r.mul_assign(k);
-
-            let order = Fr::char();
-
-            let mut q = G2::one();
-            q.mul_assign(order);
-            assert!(q.is_zero());
-
-            r.mul_assign(order);
-            assert!(r.is_zero());
-
-            let mut t = G2::rand(&mut rng);
-            t.mul_assign(order);
-            assert!(t.is_zero());
-        }
-    }
-
 }
-
 pub use self::g1::*;
 pub use self::g2::*;
