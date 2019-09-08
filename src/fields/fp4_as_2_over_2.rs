@@ -19,8 +19,6 @@ pub trait Fp4Extension: 'static + Copy + Debug + Eq + Sync + Send {
 
     const FROBENIUS_COEFFICIENTS_C1: [<Self::Fp2P as Fp2Extension>::Fp; 4];
 
-    const NON_RESIDUE: <Self::Fp2P as Fp2Extension>::Fp;
-
     #[inline(always)]
     fn mul_by_nonresidue(x: &mut Fp2<Self::Fp2P>) {
         swap(&mut x.c0, &mut x.c1);
