@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-
 use ff::{
     Field, 
 };
@@ -7,7 +5,6 @@ use ff::{
 use crate::BitIterator;
 use rand::{Rand, Rng};
 use std::{
-    cmp::Ordering,
     fmt::Debug,
     mem::swap,
 };

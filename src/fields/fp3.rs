@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-
 use ff::{
     LegendreSymbol::{
         Zero,
@@ -22,6 +20,9 @@ pub trait Fp3Extension: 'static + Copy + Debug + Eq {
     const FROBENIUS_COEFFICIENTS_C1: [Self::Fp; 3];
     const FROBENIUS_COEFFICIENTS_C2: [Self::Fp; 3];
     const NON_RESIDUE: Self::Fp;
+
+    const QUADRATIC_NONRESIDUE_TO_T: (Self::Fp, Self::Fp, Self::Fp);
+    const T_MINUS_1_OVER_2: &'static [u64];
 
     #[inline(always)]
     fn mul_by_nonresidue(x: &mut Self::Fp) {
@@ -308,6 +309,64 @@ impl<P: Fp3Extension> Field for Fp3<P> {
                 Some(tmp)
             }
             None => None,
+        }
+    }
+}
+
+impl<P: Fp3Extension> SqrtField for Fp3<P> where P::Fp: SqrtField {
+    
+    #[inline(always)]
+    fn legendre(&self) -> ::ff::LegendreSymbol {
+        self.norm().legendre()
+    }
+
+    #[inline(always)]
+    fn sqrt(&self) -> Option<Self> {
+        match self.legendre() {
+            Zero => Some(*self),
+            QuadraticNonResidue => None,
+            QuadraticResidue => {
+                // size_t v = Fp3_model<n,modulus>::s;
+                let mut v: i64 = 30;
+                // Fp3_model<n,modulus> z = Fp3_model<n,modulus>::nqr_to_t;
+                let mut z = Self {
+                    c0: P::QUADRATIC_NONRESIDUE_TO_T.0,
+                    c1: P::QUADRATIC_NONRESIDUE_TO_T.1,
+                    c2: P::QUADRATIC_NONRESIDUE_TO_T.2,
+                };
+                // Fp3_model<n,modulus> w = (*this)^Fp3_model<n,modulus>::t_minus_1_over_2;
+                let w0: Self = self.clone();
+                w0.pow(P::T_MINUS_1_OVER_2);
+                // Fp3_model<n,modulus> x = (*this) * w;
+                let mut x = w0.clone();
+                x.mul_assign(&self);
+                // Fp3_model<n,modulus> b = x * w; // b = (*this)^t
+                let mut b = x.clone();
+                b.mul_assign(&w0);
+
+                while b != Self::one() {
+                    let mut m = 0;
+                    let mut b2m = b;
+                    while b2m != Self::one() {
+                        b2m.square();
+                        m += 1;
+                    }
+
+                    let mut j = v - m - 1;
+                    while j > 0 {
+                        z.square();
+                        j = j - 1;
+                    } // z^2^(v-m-1)
+
+                    x.mul_assign(&z);
+
+                    z.square();
+                    b.mul_assign(&z);
+                    v = m;
+                }
+
+                Some(x)
+            }
         }
     }
 }
