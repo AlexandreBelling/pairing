@@ -17,13 +17,12 @@ use super::fp3::{
 pub trait Fp6Extension: 'static + Copy + Debug + Eq + Sync + Send { 
     type Fp3P: Fp3Extension;
 
-    const FROBENIUS_COEFFICIENTS_C1: [<Self::Fp3P as Fp3Extension>::Fp; 4];
-
-    const NON_RESIDUE: <Self::Fp3P as Fp3Extension>::Fp;
+    const FROBENIUS_COEFFICIENTS_C1: [<Self::Fp3P as Fp3Extension>::Fp; 6];
 
     #[inline(always)]
     fn mul_by_nonresidue(x: &mut Fp3<Self::Fp3P>) {
-        swap(&mut x.c0, &mut x.c1);
+        swap(&mut x.c0, &mut x.c2);
+        swap(&mut x.c1, &mut x.c2);
         Self::Fp3P::mul_by_nonresidue(&mut x.c0);
     }
 }
@@ -143,8 +142,7 @@ impl<P: Fp6Extension> Field for Fp6<P> {
         self.c0.frobenius_map(power);
         self.c1.frobenius_map(power);
 
-        self.c1.c0.mul_assign(&P::FROBENIUS_COEFFICIENTS_C1[power % 4]);
-        self.c1.c1.mul_assign(&P::FROBENIUS_COEFFICIENTS_C1[power % 4]);
+        self.c1.mul_assign_by_fp(&P::FROBENIUS_COEFFICIENTS_C1[power % 6]);
     }
 
     #[inline(always)]

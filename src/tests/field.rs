@@ -56,11 +56,11 @@ pub fn random_sqrt_tests<F: SqrtField>() {
 pub fn random_field_tests<F: Field>() {
     let mut rng = XorShiftRng::from_seed([0x5dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
-    random_multiplication_tests::<F, _>(&mut rng);
     random_addition_tests::<F, _>(&mut rng);
     random_subtraction_tests::<F, _>(&mut rng);
     random_negation_tests::<F, _>(&mut rng);
     random_doubling_tests::<F, _>(&mut rng);
+    random_multiplication_tests::<F, _>(&mut rng);
     random_squaring_tests::<F, _>(&mut rng);
     random_inversion_tests::<F, _>(&mut rng);
     random_expansion_tests::<F, _>(&mut rng);

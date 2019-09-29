@@ -407,8 +407,8 @@ pub const NEGATIVE_ONE: Fq = Fq(FqRepr([
 
 /* Fq3 constants */
 
-pub const FQ3_NQR_T: Fq3 = Fq3 {
-    c0: Fq(FqRepr([
+pub const FQ3_NQR_T: (Fq, Fq, Fq) = (
+    Fq(FqRepr([
         2456656400918202012,
         7503386575313625620,
         1014314685003569848,
@@ -422,9 +422,9 @@ pub const FQ3_NQR_T: Fq3 = Fq3 {
         10938255746876359306,
         107029542386399,
     ])),
-    c1: ZERO,
-    c2: ZERO,
-};
+    ZERO,
+    ZERO,
+);
 
 pub const FQ3_T_MINUS_1: [u64; 36] = [
     15439605736802142541,
