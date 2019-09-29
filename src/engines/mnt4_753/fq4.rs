@@ -3,7 +3,10 @@ extern crate std;
 use super::{
     fq::{Fq, FROBENIUS_COEFF_FQ4_C1},
     fq2::{ Fq2Extension },
-    super::fields::{
+};
+
+use crate::{
+    generics::fields::{
         fp4_as_2_over_2::{
             Fp4,
             Fp4Extension,

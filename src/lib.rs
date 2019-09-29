@@ -21,11 +21,8 @@ pub extern crate ff;
 
 pub use ff::*;
 
-pub mod fields;
-pub mod bls12_381;
-pub mod bn256;
-pub mod mnt4_753;
-pub mod mnt6_753;
+pub mod generics;
+pub mod engines;
 
 mod wnaf;
 pub use self::wnaf::Wnaf;

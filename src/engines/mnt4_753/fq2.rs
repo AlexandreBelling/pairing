@@ -1,6 +1,14 @@
-use super::{
-    fq::{Fq, FROBENIUS_COEFF_FQ2_C1, NON_RESIDUE},
-    super::fields::fp2::{ Fp2, Fp2Extension },
+use crate::{
+    generics::fields::fp2::{ 
+        Fp2, 
+        Fp2Extension 
+    },
+};
+
+use super::fq::{
+    Fq, 
+    FROBENIUS_COEFF_FQ2_C1,
+    NON_RESIDUE,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -74,4 +82,3 @@ fn fq2_field_tests() {
     crate::tests::field::random_sqrt_tests::<Fq2>();
     crate::tests::field::random_frobenius_tests::<Fq2, _>(super::fq::Fq::char(), 13);
 }
-

@@ -7,8 +7,9 @@ use super::{
         FROBENIUS_COEFF_FQ3_C1,
         FROBENIUS_COEFF_FQ3_C2
     },
-    super::fields::fp3::{ Fp3, Fp3Extension },
 };
+
+use crate::generics::fields::fp3::{ Fp3, Fp3Extension };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Fq3Extension();
