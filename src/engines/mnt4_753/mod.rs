@@ -1,12 +1,12 @@
 mod ec;
 mod fq;
-mod fq3;
-mod fq6;
+mod fq2;
+mod fq4;
 mod fr;
 
 use self::{
     ec::g2::{ AteDoubleCoefficients, AteAdditionCoefficients, G2ProjectiveExtended },
-    fq::{ MNT6_X, MNT6_X_IS_NEGATIVE, TWIST_INV, TWIST, EXP_W0, EXP_W1, EXP_W0_IS_NEGATIVE }
+    fq::{ MNT4_X, MNT4_X_IS_NEGATIVE, TWIST_INV, TWIST, EXP_W0, EXP_W1, EXP_W0_IS_NEGATIVE }
 };
 
 pub use self::ec::{
@@ -15,29 +15,29 @@ pub use self::ec::{
 };
 
 pub use self::fq::{Fq, FqRepr};
-pub use self::fq3::Fq3;
-pub use self::fq6::Fq6;
+pub use self::fq2::Fq2;
+pub use self::fq4::Fq4;
 pub use self::fr::{Fr, FrRepr};
 
-use super::{Engine, CurveAffine};
+use crate::{Engine, CurveAffine};
 
 use ff::{BitIterator, Field, ScalarEngine};
 
 #[derive(Clone, Debug)]
-pub struct Mnt6;
+pub struct Mnt4;
 
-impl Mnt6 {
+impl Mnt4 {
 
     fn ate_pairing_loop(
         p: &G1Prepared,
         q: &G2Prepared,
-    ) -> Fq6 {
+    ) -> Fq4 {
 
-        let mut l1_coeff = Fq3::zero();
+        let mut l1_coeff = Fq2::zero();
         l1_coeff.c0 = p.p.x;
         l1_coeff.sub_assign(&q.x_over_twist);
 
-        let mut f = Fq6::one();
+        let mut f = Fq4::one();
 
         let mut dbl_idx: usize = 0;
         let mut add_idx: usize = 0;
@@ -45,7 +45,7 @@ impl Mnt6 {
 
         // The for loop is executed for all bits (EXCEPT the MSB itself) of
         let mut found_one = false;
-        for bit in BitIterator::new(&MNT6_X).skip(1) {
+        for bit in BitIterator::new(&MNT4_X).skip(1) {
             if !found_one {
                 found_one = bit;
                 continue;
@@ -54,7 +54,7 @@ impl Mnt6 {
             let dc = &q.double_coefficients[dbl_idx];
             dbl_idx += 1;
 
-            let mut g_rr_at_p = Fq6::zero();
+            let mut g_rr_at_p = Fq4::zero();
 
             let mut t0 = dc.c_j;
             t0.mul_assign(&p.x_by_twist);
@@ -75,7 +75,7 @@ impl Mnt6 {
                 let ac = &q.addition_coefficients[add_idx];
                 add_idx += 1;
 
-                let mut g_rq_at_p = Fq6::zero();
+                let mut g_rq_at_p = Fq4::zero();
 
                 let mut t0 = ac.c_rz;
                 t0.mul_assign(&p.y_by_twist);
@@ -95,10 +95,10 @@ impl Mnt6 {
             }
         }
 
-        if MNT6_X_IS_NEGATIVE {
+        if MNT4_X_IS_NEGATIVE {
             let ac = &q.addition_coefficients[add_idx];
 
-            let mut g_rnegr_at_p = Fq6::zero();
+            let mut g_rnegr_at_p = Fq4::zero();
 
             let mut t0 = ac.c_rz;
             t0.mul_assign(&p.y_by_twist);
@@ -121,32 +121,27 @@ impl Mnt6 {
         f
     }
 
-    fn final_exponentiation_part_one(elt: &Fq6, elt_inv: &Fq6) -> Fq6 {
-        // (q^3-1)*(q+1)
+    fn final_exponentiation_part_one(elt: &Fq4, elt_inv: &Fq4) -> Fq4 {
+        /* (q^2-1) */
 
-        // elt_q3 = elt^(q^3)
-        let mut elt_q3 = elt.clone();
-        elt_q3.frobenius_map(3);
-        // elt_q3_over_elt = elt^(q^3-1)
-        let mut elt_q3_over_elt = elt_q3;
-        elt_q3_over_elt.mul_assign(&elt_inv);
-        // alpha = elt^((q^3-1) * q)
-        let mut alpha = elt_q3_over_elt.clone();
-        alpha.frobenius_map(1);
-        // beta = elt^((q^3-1)*(q+1)
-        alpha.mul_assign(&elt_q3_over_elt);
+        /* elt_q2 = elt^(q^2) */
+        let mut elt_q2 = elt.clone();
+        elt_q2.frobenius_map(2);
+        /* elt_q2_over_elt = elt^(q^2-1) */
+        let mut elt_q2_over_elt = elt_q2;
+        elt_q2_over_elt.mul_assign(&elt_inv);
 
-        alpha
+        elt_q2_over_elt
     }
 
-    fn final_exponentiation_part_two(elt: &Fq6, &elt_inv: &Fq6) -> Fq6 {
+    fn final_exponentiation_part_two(elt: &Fq4, &elt_inv: &Fq4) -> Fq4 {
         let mut elt_q = elt.clone();
         elt_q.frobenius_map(1);
 
-        let mut w1_part = elt_q.cyclotomic_exp(&EXP_W1);
+        let mut w1_part = elt_q.clone().cyclotomic_exp(&EXP_W1);
         let w0_part = match EXP_W0_IS_NEGATIVE {
-            true => elt_inv.cyclotomic_exp(&EXP_W0),
-            false => elt.cyclotomic_exp(&EXP_W0),
+            true => elt_inv.clone().cyclotomic_exp(&EXP_W0),
+            false => elt.clone().cyclotomic_exp(&EXP_W0),
         };
 
         w1_part.mul_assign(&w0_part);
@@ -155,18 +150,18 @@ impl Mnt6 {
 
 }
 
-impl ScalarEngine for Mnt6 {
+impl ScalarEngine for Mnt4 {
     type Fr = Fr;
 }
 
-impl Engine for Mnt6 {
+impl Engine for Mnt4 {
     type G1 = G1;
     type G1Affine = G1Affine;
     type G2 = G2;
     type G2Affine = G2Affine;
     type Fq = Fq;
-    type Fqe = Fq3;
-    type Fqk = Fq6;
+    type Fqe = Fq2;
+    type Fqk = Fq4;
 
     fn miller_loop<'a, I>(i: I) -> Self::Fqk
     where
@@ -177,7 +172,7 @@ impl Engine for Mnt6 {
             ),
         >,
     {
-        let mut f = Fq6::one();
+        let mut f = Fq4::one();
         for (p, q) in i.into_iter() {
             if !p.is_zero() && !q.is_zero() {
                 f.mul_assign(&Self::ate_pairing_loop(p, q));
@@ -187,7 +182,7 @@ impl Engine for Mnt6 {
         f
     }
 
-    fn final_exponentiation(f: &Fq6) -> Option<Fq6> {
+    fn final_exponentiation(f: &Fq4) -> Option<Fq4> {
         let value_inv = f.inverse();
         if value_inv.is_none() {
             return None;
@@ -208,8 +203,8 @@ impl G2Prepared {
     pub fn from_affine(q: G2Affine) -> Self {
         let mut res = G2Prepared {
             p: q,
-            x_over_twist: Fq3::zero(),
-            y_over_twist: Fq3::zero(),
+            x_over_twist: Fq2::zero(),
+            y_over_twist: Fq2::zero(),
             double_coefficients:   vec![],
             addition_coefficients: vec![],
         };
@@ -218,77 +213,77 @@ impl G2Prepared {
     }
 
     fn doubling_step(r: &mut G2ProjectiveExtended) -> AteDoubleCoefficients {
-        let mut a = r.t;
+        let mut a = r.t.clone();
         a.square();
-        let mut b = r.x;
+        let mut b = r.x.clone();
         b.square();
-        let mut c = r.y;
+        let mut c = r.y.clone();
         c.square();
-        let mut d = c;
+        let mut d = c.clone();
         d.square();
 
-        let mut e = r.x;
+        let mut e = r.x.clone();
         e.add_assign(&c);
         e.square();
         e.sub_assign(&b);
         e.sub_assign(&d);
 
-        let mut f = G2Affine::get_coeff_a();
+        let mut f = G2::get_coeff_a();
         f.mul_assign(&a);
         f.add_assign(&b);
         f.add_assign(&b);
         f.add_assign(&b);
 
-        let mut g = f;
+        let mut g = f.clone();
         g.square();
 
-        let mut d_eight = d;
+        let mut d_eight = d.clone();
         d_eight.double();
         d_eight.double();
         d_eight.double();
 
-        let mut t0 = e;
+        let mut t0 = e.clone();
         t0.double();
         t0.double();
 
-        let mut x = g;
+        let mut x = g.clone();
         x.sub_assign(&t0);
 
-        let mut y = e;
+        let mut y = e.clone();
         y.double();
         y.sub_assign(&x);
         y.mul_assign(&f);
         y.sub_assign(&d_eight);
 
-        let mut t0 = r.z;
+        let mut t0 = r.z.clone();
         t0.square();
 
-        let mut z = r.y;
+        let mut z = r.y.clone();
         z.add_assign(&r.z);
         z.square();
         z.sub_assign(&c);
         z.sub_assign(&t0);
 
-        let mut t = z;
+        let mut t = z.clone();
         t.square();
 
-        let mut c_h = z;
+        let mut c_h = z.clone();
         c_h.add_assign(&r.t);
         c_h.square();
         c_h.sub_assign(&t);
         c_h.sub_assign(&a);
 
-        let mut c_4c = c;
+        let mut c_4c = c.clone();
         c_4c.double();
         c_4c.double();
 
-        let mut c_j = f;
+        let mut c_j = f.clone();
         c_j.add_assign(&r.t);
         c_j.square();
         c_j.sub_assign(&g);
         c_j.sub_assign(&a);
 
-        let mut c_l = f;
+        let mut c_l = f.clone();
         c_l.add_assign(&r.x);
         c_l.square();
         c_l.sub_assign(&g);
@@ -305,68 +300,68 @@ impl G2Prepared {
     }
 
     fn addition_step(
-        x: &Fq3,
-        y: &Fq3,
+        x: &Fq2,
+        y: &Fq2,
         r: &mut G2ProjectiveExtended)
     -> AteAdditionCoefficients {
 
         let mut a = y.clone();
         a.square();
-        let mut b = r.t;
+        let mut b = r.t.clone();
         b.mul_assign(&x);
 
-        let mut d = r.z;
+        let mut d = r.z.clone();
         d.add_assign(&y);
         d.square();
         d.sub_assign(&a);
         d.sub_assign(&r.t);
         d.mul_assign(&r.t);
 
-        let mut h = b;
+        let mut h = b.clone();
         h.sub_assign(&r.x);
 
-        let mut i = h;
+        let mut i = h.clone();
         i.square();
 
-        let mut e = i;
+        let mut e = i.clone();
         e.double();
         e.double();
 
-        let mut j = h;
+        let mut j = h.clone();
         j.mul_assign(&e);
 
-        let mut v = r.x;
+        let mut v = r.x.clone();
         v.mul_assign(&e);
 
-        let mut l1 = d;
+        let mut l1 = d.clone();
         l1.sub_assign(&r.y);
         l1.sub_assign(&r.y);
 
-        let mut x = l1;
+        let mut x = l1.clone();
         x.square();
         x.sub_assign(&j);
         x.sub_assign(&v);
         x.sub_assign(&v);
 
-        let mut t0 = r.y;
+        let mut t0 = r.y.clone();
         t0.double();
         t0.mul_assign(&j);
 
-        let mut y = v;
+        let mut y = v.clone();
         y.sub_assign(&x);
         y.mul_assign(&l1);
         y.sub_assign(&t0);
 
-        let mut z = r.z;
+        let mut z = r.z.clone();
         z.add_assign(&h);
         z.square();
         z.sub_assign(&r.t);
         z.sub_assign(&i);
 
-        let mut t = z;
+        let mut t = z.clone();
         t.square();
 
-        let coeff = AteAdditionCoefficients { c_l1: l1, c_rz: z };
+        let coeff = AteAdditionCoefficients { c_l1: l1, c_rz: z.clone() };
 
         r.x = x;
         r.y = y;
@@ -393,12 +388,12 @@ impl G2Prepared {
         let mut r = G2ProjectiveExtended {
             x: self.p.x,
             y: self.p.y,
-            z: Fq3::one(),
-            t: Fq3::one(),
+            z: Fq2::one(),
+            t: Fq2::one(),
         };
 
         let mut found_one = false;
-        for bit in BitIterator::new(&MNT6_X).skip(1) {
+        for bit in BitIterator::new(&MNT4_X).skip(1) {
 
             if !found_one {
                 found_one = bit;
@@ -414,7 +409,7 @@ impl G2Prepared {
             }
         }
 
-        if MNT6_X_IS_NEGATIVE {
+        if MNT4_X_IS_NEGATIVE {
             let rz_inv = r.z.inverse().expect("z should not be equal to zero");
             let mut rz2_inv = rz_inv;
             rz2_inv.square();
@@ -445,7 +440,6 @@ impl G1Prepared {
     }
 
     pub fn from_affine(p: G1Affine) -> Self {
-
         let mut res = G1Prepared {
             p: p,
             x_by_twist: TWIST,
@@ -462,13 +456,7 @@ impl G1Prepared {
     }
 }
 
-#[cfg(test)]
-use crate::{
-    ff::{ PrimeField },
-    CurveProjective,
-};
-
 #[test]
-fn mnt6_engine_tests() {
-    crate::tests::engine::engine_tests::<Mnt6>();
+fn mnt4_engine_tests() {
+    crate::tests::engine::engine_tests::<Mnt4>();
 }

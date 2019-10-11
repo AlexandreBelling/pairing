@@ -1,28 +1,53 @@
-use super::fq::{Fq, FQ3_NQR_T, FQ3_T_MINUS_1, FROBENIUS_COEFF_FQ3_C1, FROBENIUS_COEFF_FQ3_C2};
-use ff::{Field, SqrtField };
+use ff::{
+    LegendreSymbol::{
+        Zero,
+        QuadraticResidue,
+        QuadraticNonResidue
+    },
+    Field, 
+    SqrtField,
+};
+
 use rand::{Rand, Rng};
-use ff::LegendreSymbol::{ QuadraticNonResidue, QuadraticResidue, Zero };
+use std::{
+    cmp::Ordering,
+    fmt::Debug,
+};
 
-use std::cmp::Ordering;
+pub trait Fp3Extension: 'static + Copy + Debug + Eq { 
+    type Fp: Field;
 
-/// An element of Fq3, represented by c0 + c1 * v + c2 * v^(2).
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Fq3 {
-    pub c0: Fq,
-    pub c1: Fq,
-    pub c2: Fq,
-}
+    const FROBENIUS_COEFFICIENTS_C1: [Self::Fp; 3];
+    const FROBENIUS_COEFFICIENTS_C2: [Self::Fp; 3];
+    const NON_RESIDUE: Self::Fp;
 
-impl ::std::fmt::Display for Fq3 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "Fq3({} + {} * v, {} * v^2)", self.c0, self.c1, self.c2)
+    const QUADRATIC_NONRESIDUE_TO_T: (Self::Fp, Self::Fp, Self::Fp);
+    const T_MINUS_1_OVER_2: &'static [u64];
+
+    #[inline(always)]
+    fn mul_by_nonresidue(x: &mut Self::Fp) {
+        x.mul_assign(&Self::NON_RESIDUE);
     }
 }
 
-/// `Fq3` elements are ordered lexicographically.
-impl Ord for Fq3 {
+/// An element of Fp3, represented by c0 + c1 * v + c2 * v^(2).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Fp3<P: Fp3Extension> {
+    pub c0: P::Fp,
+    pub c1: P::Fp,
+    pub c2: P::Fp,
+}
+
+impl<P: Fp3Extension> ::std::fmt::Display for Fp3<P> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "Fp3({} + {} * v, {} * v^2)", self.c0, self.c1, self.c2)
+    }
+}
+
+/// `Fp3Extension<P>` elements are ordered lexicographically.
+impl<P: Fp3Extension> Ord for Fp3<P> where P::Fp: Ord + Field {
     #[inline(always)]
-    fn cmp(&self, other: &Fq3) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         match self.c2.cmp(&other.c2) {
             Ordering::Greater => Ordering::Greater,
             Ordering::Less => Ordering::Less,
@@ -35,33 +60,25 @@ impl Ord for Fq3 {
     }
 }
 
-impl PartialOrd for Fq3 {
+impl<P: Fp3Extension> PartialOrd for Fp3<P> where P::Fp: Ord + Field {
     #[inline(always)]
-    fn partial_cmp(&self, other: &Fq3) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Fq3 {
+impl<P: Fp3Extension> Fp3<P> where P::Fp: Field {
 
     #[inline(always)]
-    pub fn mul_by_nonresidue(&mut self) {
-        use std::mem::swap;
-        swap(&mut self.c0, &mut self.c1); // (a, b, c) -> (b, a, c)
-        swap(&mut self.c0, &mut self.c2); // (b, a, c) -> (c, a, b)
-        self.c0.mul_by_nonresidue();
-    }
-
-    #[inline(always)]
-    pub fn mul_assign_by_fp(&mut self, other: &Fq) {
+    pub fn mul_assign_by_fp(&mut self, other: &P::Fp) {
         self.c0.mul_assign(&other);
         self.c1.mul_assign(&other);
         self.c2.mul_assign(&other);
     }
 
-    /// Norm of Fq3 as extension field in i over Fq
+    /// Norm of Fp3 as extension field in i over P::Fp
     #[inline(always)]
-    pub fn norm(&self) -> Fq {
+    pub fn norm(&self) -> P::Fp {
         // From ZEXE's code
         let mut self_to_p2 = *self;
         self_to_p2.frobenius_map(2);
@@ -76,9 +93,9 @@ impl Fq3 {
     }
 }
 
-impl Rand for Fq3 {
+impl<P: Fp3Extension> Rand for Fp3<P> {
     fn rand<R: Rng>(rng: &mut R) -> Self {
-        Fq3 {
+        Self {
             c0: rng.gen(),
             c1: rng.gen(),
             c2: rng.gen(),
@@ -86,22 +103,22 @@ impl Rand for Fq3 {
     }
 }
 
-impl Field for Fq3 {
+impl<P: Fp3Extension> Field for Fp3<P> {
     #[inline(always)]
     fn zero() -> Self {
-        Fq3 {
-            c0: Fq::zero(),
-            c1: Fq::zero(),
-            c2: Fq::zero(),
+        Self {
+            c0: P::Fp::zero(),
+            c1: P::Fp::zero(),
+            c2: P::Fp::zero(),
         }
     }
 
     #[inline(always)]
     fn one() -> Self {
-        Fq3 {
-            c0: Fq::one(),
-            c1: Fq::zero(),
-            c2: Fq::zero(),
+        Self {
+            c0: P::Fp::one(),
+            c1: P::Fp::zero(),
+            c2: P::Fp::zero(),
         }
     }
 
@@ -140,8 +157,8 @@ impl Field for Fq3 {
 
     #[inline(always)]
     fn frobenius_map(&mut self, power: usize) {
-        self.c1.mul_assign(&FROBENIUS_COEFF_FQ3_C1[power % 3]);
-        self.c2.mul_assign(&FROBENIUS_COEFF_FQ3_C2[power % 3]);
+        self.c1.mul_assign(&P::FROBENIUS_COEFFICIENTS_C1[power % 3]);
+        self.c2.mul_assign(&P::FROBENIUS_COEFFICIENTS_C2[power % 3]);
     }
 
     /* from https://github.com/scipr-lab/libff/blob/f2067162520f91438b44e71a2cab2362f1c3cab4/libff/algebra/fields/fp3.tcc#L100
@@ -167,12 +184,12 @@ impl Field for Fq3 {
 
         // return c0 = s0 + non_residue * s3,
         self.c0 = s3;
-        self.c0.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut self.c0);
         self.c0.add_assign(&s0);
 
         // return c1 = s1 + non_residue * s4,
         self.c1 = s4;
-        self.c1.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut self.c1);
         self.c1.add_assign(&s1);
 
         // return c2 = s1 + s2 + s3 - s0 - s4);
@@ -202,7 +219,7 @@ impl Field for Fq3 {
             t1.mul_assign(&tmp);
             t1.sub_assign(&b_b);
             t1.sub_assign(&c_c);
-            t1.mul_by_nonresidue();
+            P::mul_by_nonresidue(&mut t1);
             t1.add_assign(&a_a);
         }
 
@@ -229,7 +246,7 @@ impl Field for Fq3 {
             t2.mul_assign(&tmp);
             t2.sub_assign(&a_a);
             t2.sub_assign(&b_b);
-            c_c.mul_by_nonresidue();
+            P::mul_by_nonresidue(&mut c_c);
             t2.add_assign(&c_c);
         }
 
@@ -255,10 +272,10 @@ impl Field for Fq3 {
         let mut t5 = self.c1;
         t5.mul_assign(&self.c2);
         // c0 = t0 - non_residue * t5
-        t5.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut t5);
         t0.sub_assign(&t5);
         // c1 = non_residue * t2 - t3
-        t2.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut t2);
         t2.sub_assign(&t3);
         // c2 = t1 - t4
         t1.sub_assign(&t4);
@@ -274,12 +291,12 @@ impl Field for Fq3 {
         let mut cc = self.c2;
         cc.mul_assign(&t2);
         cc.add_assign(&bc);
-        cc.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut cc);
         cc.add_assign(&ac);
 
         match cc.inverse() {
             Some(t) => {
-                let mut tmp = Fq3 {
+                let mut tmp = Self {
                     c0: t,
                     c1: t,
                     c2: t,
@@ -296,42 +313,11 @@ impl Field for Fq3 {
     }
 }
 
-#[inline(always)]
-fn pow(base: &Fq3, exp: [u64; 36]) -> Fq3 {
-    let mut res = Fq3::one();
-
-    let mut found_one = false;
-
-    /*
-          let n = t.as_ref().len() * 64;
-          for i in BitIterator { t, n }
-    */
-    // BitIterator is from pairing
-    for i in super::BitIterator::new(&exp[..]) {
-        if found_one {
-            res.square();
-        } else {
-            found_one = i;
-        }
-
-        if i {
-            res.mul_assign(&base);
-        }
-    }
-    res
-}
-
-#[inline(always)]
-fn legendre(x: &Fq3) -> ::ff::LegendreSymbol {
-    x.norm().legendre()
-}
-
-
-impl SqrtField for Fq3 {
+impl<P: Fp3Extension> SqrtField for Fp3<P> where P::Fp: SqrtField {
     
     #[inline(always)]
     fn legendre(&self) -> ::ff::LegendreSymbol {
-        legendre(self)
+        self.norm().legendre()
     }
 
     #[inline(always)]
@@ -343,9 +329,14 @@ impl SqrtField for Fq3 {
                 // size_t v = Fp3_model<n,modulus>::s;
                 let mut v: i64 = 30;
                 // Fp3_model<n,modulus> z = Fp3_model<n,modulus>::nqr_to_t;
-                let mut z: Fq3 = FQ3_NQR_T.clone();
+                let mut z = Self {
+                    c0: P::QUADRATIC_NONRESIDUE_TO_T.0,
+                    c1: P::QUADRATIC_NONRESIDUE_TO_T.1,
+                    c2: P::QUADRATIC_NONRESIDUE_TO_T.2,
+                };
                 // Fp3_model<n,modulus> w = (*this)^Fp3_model<n,modulus>::t_minus_1_over_2;
-                let w0: Fq3 = pow(&self, FQ3_T_MINUS_1);
+                let w0: Self = self.clone();
+                w0.pow(P::T_MINUS_1_OVER_2);
                 // Fp3_model<n,modulus> x = (*this) * w;
                 let mut x = w0.clone();
                 x.mul_assign(&self);
@@ -379,14 +370,3 @@ impl SqrtField for Fq3 {
         }
     }
 }
-
-#[test]
-fn fq3_field_tests() {
-    use ff::PrimeField;
-
-    crate::tests::field::random_field_tests::<Fq3>();
-    crate::tests::field::random_sqrt_tests::<Fq3>();
-    crate::tests::field::random_frobenius_tests::<Fq3, _>(super::fq::Fq::char(), 13);
-}
-
-

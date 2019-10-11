@@ -18,7 +18,7 @@ pub use self::fq2::Fq2;
 pub use self::fq6::Fq6;
 pub use self::fr::{Fr, FrRepr};
 
-use super::{CurveAffine, Engine};
+use crate::{CurveAffine, Engine};
 
 use ff::{Field, ScalarEngine};
 

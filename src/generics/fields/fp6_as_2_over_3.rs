@@ -1,49 +1,63 @@
-extern crate std;
-
-use super::{
-    fq::{FROBENIUS_COEFF_FQ4_C1},
-    fq2::Fq2,
+use ff::{
+    Field, 
 };
 
-use crate::{
-    BitIterator,
-    rand::{Rand, Rng},
-    ff::Field,
+use crate::BitIterator;
+use rand::{Rand, Rng};
+use std::{
+    fmt::Debug,
+    mem::swap,
 };
 
-use std::mem::swap;
+use super::fp3::{
+    Fp3Extension,
+    Fp3,
+};
 
-/// An element of Fq4, represented by c0 + c1 * w.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Fq4 {
-    pub c0: Fq2,
-    pub c1: Fq2,
-}
+pub trait Fp6Extension: 'static + Copy + Debug + Eq + Sync + Send { 
+    type Fp3P: Fp3Extension;
 
-impl ::std::fmt::Display for Fq4 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "Fq4({} + {} * w)", self.c0, self.c1)
+    const FROBENIUS_COEFFICIENTS_C1: [<Self::Fp3P as Fp3Extension>::Fp; 6];
+
+    #[inline(always)]
+    fn mul_by_nonresidue(x: &mut Fp3<Self::Fp3P>) {
+        swap(&mut x.c0, &mut x.c2);
+        swap(&mut x.c1, &mut x.c2);
+        Self::Fp3P::mul_by_nonresidue(&mut x.c0);
     }
 }
 
-impl Rand for Fq4 {
+/// An element of Fp3, represented by c0 + c1 * u.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Fp6<P: Fp6Extension> {
+    pub c0: Fp3<P::Fp3P>,
+    pub c1: Fp3<P::Fp3P>,
+}
+
+impl<P: Fp6Extension> ::std::fmt::Display for Fp6<P> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "Fp6({} + {} * w)", self.c0, self.c1)
+    }
+}
+
+impl<P: Fp6Extension> Rand for Fp6<P> {
     fn rand<R: Rng>(rng: &mut R) -> Self {
-        Fq4 {
+        Self {
             c0: rng.gen(),
             c1: rng.gen(),
         }
     }
 }
 
-impl Fq4 {
+impl<P: Fp6Extension> Fp6<P> {
 
     #[inline(always)]
     pub fn conjugate(&mut self) {
         self.c1.negate();
     }
 
-    // When the Fq4 element is known to be an r-th root of 
-    // unity, we can use this function instead of squaring
+    // When the Fp6 element is known to be an r-th root of 
+    // unity, we can use this function instead of pow
     // TODO: Implement NAF
     #[inline(always)]
     pub fn cyclotomic_exp<S: AsRef<[u64]>>(&self, exp: S) -> Self {
@@ -51,21 +65,14 @@ impl Fq4 {
         let mut found_one = false;
 
         for i in BitIterator::new(exp) {
-            if found_one {
-                res.cyclotomic_square();
-            } else {
-                found_one = i;
-            }
-
-            if i {
-                res.mul_assign(self);
-            }
+            if found_one { res.cyclotomic_square(); }
+            else { found_one = i; }
+            if i { res.mul_assign(self); }
         }
-
         res
     }
 
-    // When the Fq4 element is known to be an r-th root of 
+    // When the Fp6 element is known to be an r-th root of 
     // unity, we can use this function instead of squaring
     #[inline(always)]
     pub fn cyclotomic_square(&mut self) {
@@ -74,30 +81,30 @@ impl Fq4 {
         self.c1.square();
         self.c0.square();
         self.c1.sub_assign(&self.c0);
-        self.c0.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut self.c0);
         self.c1.sub_assign(&self.c0);
         self.c0.double();
-        let one = Fq2::one();
+        let one = Fp3::<P::Fp3P>::one();
         self.c0.add_assign(&one);
         self.c1.sub_assign(&one);
     }
 }
 
-impl Field for Fq4 {
+impl<P: Fp6Extension> Field for Fp6<P> {
     
     #[inline(always)]
     fn zero() -> Self {
-        Fq4 {
-            c0: Fq2::zero(),
-            c1: Fq2::zero(),
+        Self {
+            c0: Fp3::<P::Fp3P>::zero(),
+            c1: Fp3::<P::Fp3P>::zero(),
         }
     }
 
     #[inline(always)]
     fn one() -> Self {
-        Fq4 {
-            c0: Fq2::one(),
-            c1: Fq2::zero(),
+        Self {
+            c0: Fp3::<P::Fp3P>::one(),
+            c1: Fp3::<P::Fp3P>::zero(),
         }
     }
 
@@ -135,8 +142,7 @@ impl Field for Fq4 {
         self.c0.frobenius_map(power);
         self.c1.frobenius_map(power);
 
-        self.c1.c0.mul_assign(&FROBENIUS_COEFF_FQ4_C1[power % 4]);
-        self.c1.c1.mul_assign(&FROBENIUS_COEFF_FQ4_C1[power % 4]);
+        self.c1.mul_assign_by_fp(&P::FROBENIUS_COEFFICIENTS_C1[power % 6]);
     }
 
     #[inline(always)]
@@ -152,7 +158,7 @@ impl Field for Fq4 {
         self.c1.mul_assign(&self.c0);
         self.c1.double();
         self.c0 = aa;
-        bb.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut bb);
         self.c0.add_assign(&bb);
     }
 
@@ -169,7 +175,7 @@ impl Field for Fq4 {
         self.c1.sub_assign(&aa);
         self.c1.sub_assign(&bb);
         self.c0 = aa;
-        bb.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut bb);
         self.c0.add_assign(&bb);
     }
 
@@ -179,11 +185,11 @@ impl Field for Fq4 {
         c0s.square();
         let mut c1s = self.c1;
         c1s.square();
-        c1s.mul_by_nonresidue();
+        P::mul_by_nonresidue(&mut c1s);
         c0s.sub_assign(&c1s);
 
         c0s.inverse().map(|t| {
-            let mut tmp = Fq4 { c0: t, c1: t };
+            let mut tmp = Self { c0: t, c1: t };
             tmp.c0.mul_assign(&self.c0);
             tmp.c1.mul_assign(&self.c1);
             tmp.c1.negate();
@@ -191,12 +197,4 @@ impl Field for Fq4 {
             tmp
         })
     }
-}
-
-#[test]
-fn fq4_field_tests() {
-    use ff::PrimeField;
-
-    crate::tests::field::random_field_tests::<Fq4>();
-    crate::tests::field::random_frobenius_tests::<Fq4, _>(super::fq::Fq::char(), 13);
 }
